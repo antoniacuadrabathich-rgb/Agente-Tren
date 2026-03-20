@@ -135,6 +135,7 @@
   #toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--red);color:#fff;padding:9px 18px;border-radius:30px;font-size:12px;font-weight:600;opacity:0;transition:all 0.3s;pointer-events:none;z-index:9999;white-space:nowrap;}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 
@@ -207,17 +208,20 @@ const SPREADSHEET_ID = "1t-2N7HS6kBFHkk1phK_MdgBMR8N05MtGmEEgkxKJa7I";
 
 let RETIROS = [];
 let DROPOFF = {};
+let ORDENES = [];
 
 // ── Carga datos desde Google Sheets ──────────────────────────
 async function loadData() {
   const base = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/pub?output=csv&sheet=`;
   try {
-    const [r, d] = await Promise.all([
+    const [r, d, o] = await Promise.all([
       fetch(base + "retiros&t=" + Date.now(), {cache: "no-store"}).then(res => res.text()),
-      fetch(base + "drop_off&t=" + Date.now(), {cache: "no-store"}).then(res => res.text())
+      fetch(base + "drop_off&t=" + Date.now(), {cache: "no-store"}).then(res => res.text()),
+      fetch(base + "ordenes&t=" + Date.now(), {cache: "no-store"}).then(res => res.text())
     ]);
     RETIROS = csvToJson(r);
     csvToJson(d).forEach(row => DROPOFF[row.seller_id] = row);
+    ORDENES = csvToJson(o);
   } catch(e) {
     console.warn("No se pudo cargar Google Sheets, usando datos de respaldo.", e);
     loadFallbackData();
@@ -251,6 +255,18 @@ function loadFallbackData() {
     "78901": { punto:"XD Hub La Florida",      direccion:"Av. VMK 7800, La Florida",              horario:"Lun–Sáb 09:00–21:00", estado:"Activo", distancia:"4.3 km", courier:"Rapiboy"    },
     "55443": { punto:"XD Hub Providencia",     direccion:"Av. Providencia 2300, Providencia",     horario:"Lun–Sáb 08:00–20:00", estado:"Activo", distancia:"2.1 km", courier:"Bluexpress" },
   };
+  ORDENES = [
+    { numero_orden:"ORD-100001", seller_id:"12345", nombre_seller:"Tecnología Express", rut_seller:"76.123.456-7", numero_lpn:"LPN-88001", cantidad_productos:"2", descripcion:"Notebook Dell" },
+    { numero_orden:"ORD-100002", seller_id:"12345", nombre_seller:"Tecnología Express", rut_seller:"76.123.456-7", numero_lpn:"LPN-88002", cantidad_productos:"1", descripcion:"Mouse Logitech" },
+    { numero_orden:"ORD-100003", seller_id:"12345", nombre_seller:"Tecnología Express", rut_seller:"76.123.456-7", numero_lpn:"LPN-88003", cantidad_productos:"3", descripcion:"Teclado Mecánico" },
+    { numero_orden:"ORD-100004", seller_id:"67890", nombre_seller:"Moda Sur",           rut_seller:"76.987.654-3", numero_lpn:"LPN-88004", cantidad_productos:"1", descripcion:"Polera S" },
+    { numero_orden:"ORD-100005", seller_id:"67890", nombre_seller:"Moda Sur",           rut_seller:"76.987.654-3", numero_lpn:"LPN-88005", cantidad_productos:"2", descripcion:"Jeans M" },
+    { numero_orden:"ORD-100006", seller_id:"11223", nombre_seller:"Casa & Deco Chile",  rut_seller:"76.456.789-1", numero_lpn:"LPN-88006", cantidad_productos:"4", descripcion:"Cojines x4" },
+    { numero_orden:"ORD-100007", seller_id:"11223", nombre_seller:"Casa & Deco Chile",  rut_seller:"76.456.789-1", numero_lpn:"LPN-88007", cantidad_productos:"1", descripcion:"Lámpara Mesa" },
+    { numero_orden:"ORD-100008", seller_id:"44556", nombre_seller:"Deportes Norte",     rut_seller:"76.111.222-0", numero_lpn:"LPN-88008", cantidad_productos:"2", descripcion:"Zapatillas Nike" },
+    { numero_orden:"ORD-100009", seller_id:"44556", nombre_seller:"Deportes Norte",     rut_seller:"76.111.222-0", numero_lpn:"LPN-88009", cantidad_productos:"1", descripcion:"Short Adidas" },
+    { numero_orden:"ORD-100010", seller_id:"44556", nombre_seller:"Deportes Norte",     rut_seller:"76.111.222-0", numero_lpn:"LPN-88010", cantidad_productos:"3", descripcion:"Calcetines x3" },
+  ];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -280,9 +296,20 @@ const MODULES = [
   {
     id:"alertas", icon:"🚨", label:"Reportar problema", desc:"Camión atrasado u otro incidente", danger:true,
     questions:[
-      { id:"atraso", icon:"⏱️", label:"Camión no llegó a tiempo", desc:"Reportar atraso en el pickup" },
-      { id:"noshow", icon:"❌", label:"Pickup no fue realizado",   desc:"El camión nunca llegó" },
-      { id:"otro",   icon:"📝", label:"Otro problema",             desc:"Incidente no listado" },
+      { id:"atraso",       icon:"⏱️", label:"Camión no llegó a tiempo",        desc:"Reportar atraso en el pickup",        group:"Problemas de pickup" },
+      { id:"noshow",       icon:"❌",  label:"Pickup no fue realizado",          desc:"El camión nunca llegó",               group:"Problemas de pickup" },
+      { id:"transportista",icon:"🔄",  label:"Transportista no corresponde",     desc:"Llegó distinto al informado",         group:"Problemas de pickup" },
+      { id:"bloqueado",    icon:"🚫",  label:"Transportista bloqueado",          desc:"No se pudo completar el retiro",      group:"Problemas de pickup" },
+      { id:"datos",        icon:"🚛",  label:"Solicitar datos del transporte",   desc:"Ver patente, conductor, ETA",         group:"Consultas" },
+      { id:"horario",      icon:"🕐",  label:"Consultar horario de llegada",     desc:"¿Cuándo llega el camión?",            group:"Consultas" },
+      { id:"contacto",     icon:"📞",  label:"Actualizar contacto telefónico",   desc:"Cambiar número de contacto",          group:"Gestión" },
+      { id:"otro",         icon:"📝",  label:"Otro problema",                    desc:"Incidente no listado",                group:"Gestión" },
+    ]
+  },
+  {
+    id:"documentos", icon:"📄", label:"Generar manifiesto", desc:"Ingresa tus órdenes y descarga el Excel",
+    questions:[
+      { id:"generar", icon:"📋", label:"Generar manifiesto de carga", desc:"Ingresa números de orden para el XD Hub" },
     ]
   },
   {
@@ -329,14 +356,42 @@ function showQuestions() {
   if (!currentModule) return;
   currentQuestion = null;
   hideInput();
-  const btns = currentModule.questions.map(q =>
-    `<button class="q-btn ${currentModule.danger?'danger':''}" onclick="selectQuestion('${q.id}')">
-      <span class="btn-icon">${q.icon}</span>
-      <span class="btn-text"><span class="btn-label">${q.label}</span><span class="btn-desc">${q.desc}</span></span>
-    </button>`
-  ).join('');
+
+  let btnsHtml = '';
+
+  if (currentModule.id === 'alertas') {
+    // Render grouped
+    const groups = {};
+    currentModule.questions.forEach(q => {
+      const g = q.group || 'Otros';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(q);
+    });
+    const groupIcons = { 'Problemas de pickup':'🚨', 'Consultas':'🔍', 'Gestión':'⚙️' };
+    Object.entries(groups).forEach(([gname, qs]) => {
+      btnsHtml += `<div style="margin-top:12px;margin-bottom:4px;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px">${groupIcons[gname]||''} ${gname}</div>`;
+      btnsHtml += `<div class="btn-grid">`;
+      btnsHtml += qs.map(q =>
+        `<button class="q-btn danger" onclick="selectQuestion('${q.id}')">
+          <span class="btn-icon">${q.icon}</span>
+          <span class="btn-text"><span class="btn-label">${q.label}</span><span class="btn-desc">${q.desc}</span></span>
+        </button>`
+      ).join('');
+      btnsHtml += `</div>`;
+    });
+  } else {
+    btnsHtml = `<div class="btn-grid" style="margin-top:10px">` +
+      currentModule.questions.map(q =>
+        `<button class="q-btn ${currentModule.danger?'danger':''}" onclick="selectQuestion('${q.id}')">
+          <span class="btn-icon">${q.icon}</span>
+          <span class="btn-text"><span class="btn-label">${q.label}</span><span class="btn-desc">${q.desc}</span></span>
+        </button>`
+      ).join('') + `</div>`;
+  }
+
   const intros = { retiros:'¿Qué quieres consultar sobre tu retiro?', dropoff:'¿Qué información necesitas de tu Punto Drop Off?', alertas:'¿Qué problema quieres reportar?' };
-  botMsg(`${intros[currentModule.id]||'¿Qué consulta tienes?'}<div class="btn-grid" style="margin-top:10px">${btns}</div>`);
+  botMsg(`${intros[currentModule.id]||'¿Qué consulta tienes?'}${btnsHtml}
+    <div class="back-btn" style="margin-top:10px" onclick="goHome()">← Volver al menú</div>`);
 }
 
 function selectQuestion(qid) {
@@ -344,9 +399,22 @@ function selectQuestion(qid) {
   const q = currentModule.questions.find(x => x.id === qid);
   userMsg(q?.label || qid);
   after(350, () => {
-    if (currentModule.id === 'retiros')  askSellerId(sid => { typingThen(600, () => answerRetiro(sid, qid)); });
-    if (currentModule.id === 'dropoff')  askSellerId(sid => { typingThen(600, () => answerDropoff(sid, qid)); });
-    if (currentModule.id === 'alertas')  askSellerId(sid => { typingThen(700, () => fireAlert(sid, qid)); });
+    if (currentModule.id === 'retiros')    askSellerId(sid => { typingThen(600, () => answerRetiro(sid, qid)); });
+    if (currentModule.id === 'dropoff')    askSellerId(sid => { typingThen(600, () => answerDropoff(sid, qid)); });
+    if (currentModule.id === 'alertas') {
+      if (qid === 'contacto') {
+        askSellerId(sid => {
+          typingThen(400, () => {
+            pendingAction = (telefono) => { typingThen(600, () => fireAlertContacto(sid, telefono)); };
+            botMsg('¿Cuál es el <strong>nuevo número de contacto</strong> que quieres registrar?');
+            showInput('Ej: +56912345678');
+          });
+        });
+      } else {
+        askSellerId(sid => { typingThen(700, () => fireAlert(sid, qid)); });
+      }
+    }
+    if (currentModule.id === 'documentos') askOrders();
   });
 }
 
@@ -515,16 +583,77 @@ function answerDropoff(seller_id, qid) {
 // ═══════════════════════════════════════════════════════════════
 //  ALERTAS
 // ═══════════════════════════════════════════════════════════════
-function fireAlert(seller_id, qid) {
+function fireAlertContacto(seller_id, telefono) {
   const retiro = RETIROS.find(r => r.seller_id===seller_id) || {};
   const hora = new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
-  const tipos = { atraso:'Camión no llegó a tiempo', noshow:'Pickup no fue realizado', otro:'Incidente operativo' };
-  const alerta = { id:++alertCount, seller_id, nombre_seller:retiro.nombre_seller||`Seller ${seller_id}`, patente:retiro.patente||'No asignada', hora_reporte:hora, tipo:tipos[qid]||'Incidente' };
+  const alerta = {
+    id: ++alertCount,
+    seller_id,
+    nombre_seller: retiro.nombre_seller || `Seller ${seller_id}`,
+    patente: retiro.patente || '—',
+    hora_reporte: hora,
+    tipo: `Actualización contacto → ${telefono}`
+  };
+  addAlertToPanel(alerta);
+  showToast();
+  botMsg(`Contacto actualizado correctamente.
+    <div class="alert-confirm">
+      <div class="alert-confirm-title">📞 Solicitud #${alerta.id} registrada a las ${hora}</div>
+      <div class="alert-confirm-row"><span>Seller</span><span>${esc(alerta.nombre_seller)} · ${seller_id}</span></div>
+      <div class="alert-confirm-row"><span>Nuevo contacto</span><span><strong>${esc(telefono)}</strong></span></div>
+      <div class="alert-confirm-channels">
+        <span class="ch email">📧 Email</span>
+        <span class="ch teams">💬 Teams</span>
+        <span class="ch excel">📊 Excel</span>
+      </div>
+    </div>
+    Un ejecutivo confirmará el cambio a la brevedad.${backBtn()}`);
+}
+
+function fireAlert(seller_id, qid) {
+  // Smart routing: consultas redirigen al módulo correcto
+  if (qid === 'datos' || qid === 'horario') {
+    typingThen(500, () => {
+      botMsg(`Te llevo directo al módulo de retiros para consultarlo.<div style="display:flex;gap:6px;margin-top:10px">
+        <div class="back-btn" onclick="currentModule=MODULES.find(m=>m.id==='retiros');setBreadcrumb('🚚 Retiros logísticos');showQuestions()">🚚 Ir a Retiros</div>
+        <div class="back-btn" onclick="goHome()">🏠 Menú</div>
+      </div>`);
+    });
+    return;
+  }
+  // Incidencias reales → disparan alerta
+  const retiro = RETIROS.find(r => r.seller_id===seller_id) || {};
+  const hora = new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'});
+  const tipos = {
+    atraso:        'Camión no llegó a tiempo',
+    noshow:        'Pickup no fue realizado',
+    transportista: 'Transportista no corresponde al informado',
+    bloqueado:     'Transportista bloqueado',
+    otro:          'Incidente operativo'
+  };
+
+  const alerta = {
+    id: ++alertCount,
+    seller_id,
+    nombre_seller: retiro.nombre_seller || `Seller ${seller_id}`,
+    patente: retiro.patente || 'No asignada',
+    hora_reporte: hora,
+    tipo: tipos[qid] || 'Incidente'
+  };
 
   addAlertToPanel(alerta);
   showToast();
 
-  botMsg(`Tu reporte fue recibido. El equipo de operaciones ya fue notificado.
+  // Mensaje especial para actualización de contacto
+  const extraMsg = qid === 'contacto'
+    ? `<br><br>Un ejecutivo te contactará para confirmar el nuevo número.`
+    : qid === 'transportista'
+    ? `<br><br>Por favor no entregues los paquetes hasta que el equipo confirme la identidad del transportista.`
+    : qid === 'bloqueado'
+    ? `<br><br>El equipo gestionará un nuevo transportista a la brevedad.`
+    : '';
+
+  botMsg(`Tu reporte fue recibido. El equipo de operaciones ya fue notificado.${extraMsg}
     <div class="alert-confirm">
       <div class="alert-confirm-title">🚨 Alerta #${alerta.id} registrada a las ${hora}</div>
       <div class="alert-confirm-row"><span>Seller</span><span>${esc(alerta.nombre_seller)} · ${seller_id}</span></div>
@@ -536,6 +665,172 @@ function fireAlert(seller_id, qid) {
         <span class="ch excel">📊 Excel</span>
       </div>
     </div>${backBtn()}`, 'alert-bubble');
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO: DOCUMENTOS
+// ═══════════════════════════════════════════════════════════════
+function askOrders() {
+  pendingAction = processOrders;
+  botMsg(`Ingresa los <strong>números de orden</strong> para los que necesitas el manifiesto.<br><br>
+    Puedes separarlos por <strong>coma</strong>, <strong>espacio</strong> o <strong>Enter</strong>.<br><br>
+    Ejemplo: <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px">ORD-100001, ORD-100002, ORD-100003</code>`);
+  showInputMultiline();
+}
+
+function showInputMultiline() {
+  const ia = document.getElementById('inputArea');
+  ia.classList.add('visible');
+  const inp = document.getElementById('userInput');
+  inp.placeholder = 'ORD-100001, ORD-100002, ORD-100003...';
+  inp.value = '';
+  after(100, () => inp.focus());
+}
+
+function processOrders(raw) {
+  // Parse order numbers — split by comma, space, or newline
+  const orders = raw.split(/[,\s\n]+/).map(o => o.trim().toUpperCase()).filter(Boolean);
+
+  if (!orders.length) {
+    botMsg(`No detecté números de orden válidos. Inténtalo de nuevo.${backBtn()}`);
+    return;
+  }
+
+  // Look up each order in ORDENES
+  const found = [];
+  const notFound = [];
+
+  orders.forEach(ord => {
+    const row = ORDENES.find(o => o.numero_orden && o.numero_orden.toUpperCase() === ord);
+    if (row) found.push(row);
+    else notFound.push(ord);
+  });
+
+  if (!found.length) {
+    botMsg(`No encontré ninguna de estas órdenes en el sistema: <strong>${orders.join(', ')}</strong><br><br>
+      Verifica los números e inténtalo de nuevo.${backBtn()}`);
+    return;
+  }
+
+  // Generate Excel manifest
+  generateManifest(found, notFound);
+}
+
+function generateManifest(rows, notFound) {
+  const seller      = rows[0].nombre_seller || '—';
+  const rut         = rows[0].rut_seller    || '—';
+  const fecha       = new Date().toLocaleDateString('es-CL');
+  const totalBultos = rows.reduce((s, r) => s + parseInt(r.cantidad_productos || 0), 0);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const pw = 210, ml = 20, mr = 20, cw = pw - ml - mr;
+
+  // ── Header ──────────────────────────────────────
+  doc.setFillColor(30, 45, 69);
+  doc.rect(ml, 14, cw, 12, 'F');
+  doc.setTextColor(232, 237, 245);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(11);
+  doc.text('MANIFIESTO DE CARGA PARA RECEPCION MKP FBS', pw/2, 21.5, {align:'center'});
+
+  // ── Info seller ──────────────────────────────────
+  doc.setTextColor(50,50,50);
+  doc.setFontSize(9);
+  doc.setFont('helvetica','normal');
+
+  const infoY = 34;
+  const labels = [['Seller:', seller],['RUT:', rut],['Fecha:', fecha]];
+  labels.forEach(([lbl, val], i) => {
+    const y = infoY + i*7;
+    doc.setFont('helvetica','bold');
+    doc.text(lbl, ml, y);
+    doc.setFont('helvetica','normal');
+    doc.text(val, ml + 20, y);
+  });
+
+  // ── Table header ─────────────────────────────────
+  const tY = infoY + labels.length * 7 + 6;
+  const cols = { orden: ml, lpn: ml+65, cant: ml+140 };
+  const colW = { orden: 63, lpn: 73, cant: 27 };
+
+  doc.setFillColor(30, 45, 69);
+  doc.rect(ml, tY, cw, 8, 'F');
+  doc.setTextColor(232, 237, 245);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(9);
+  doc.text('Número de orden',       cols.orden + 2, tY + 5.2);
+  doc.text('Número LPN (Label)',     cols.lpn   + 2, tY + 5.2);
+  doc.text('Cant.',                  cols.cant  + 2, tY + 5.2);
+
+  // ── Table rows ───────────────────────────────────
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(9);
+  let rowY = tY + 8;
+  rows.forEach((r, i) => {
+    const bg = i % 2 === 0 ? [245,247,250] : [255,255,255];
+    doc.setFillColor(...bg);
+    doc.rect(ml, rowY, cw, 7, 'F');
+    doc.setTextColor(50,50,50);
+    doc.text(r.numero_orden  || '', cols.orden + 2, rowY + 4.8);
+    doc.text(r.numero_lpn    || '—', cols.lpn  + 2, rowY + 4.8);
+    doc.text(String(r.cantidad_productos || 0), cols.cant + 2, rowY + 4.8);
+
+    // Cell borders
+    doc.setDrawColor(200,205,215);
+    doc.setLineWidth(0.2);
+    doc.rect(cols.orden, rowY, colW.orden, 7);
+    doc.rect(cols.lpn,   rowY, colW.lpn,   7);
+    doc.rect(cols.cant,  rowY, colW.cant,   7);
+    rowY += 7;
+  });
+
+  // ── Total row ────────────────────────────────────
+  rowY += 2;
+  doc.setFillColor(30, 45, 69);
+  doc.rect(ml, rowY, cw, 8, 'F');
+  doc.setTextColor(232, 237, 245);
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(9);
+  doc.text('Total de bultos', cols.orden + 2, rowY + 5.2);
+  doc.text(String(totalBultos), cols.cant + 2, rowY + 5.2);
+
+  // ── Footer ───────────────────────────────────────
+  doc.setTextColor(150,150,150);
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7);
+  doc.text('Falabella Marketplace · Generado automáticamente · ' + fecha, pw/2, 285, {align:'center'});
+
+  // Download
+  const filename = 'Manifiesto_' + seller.replace(/\s+/g,'_') + '_' + fecha.replace(/\//g,'-') + '.pdf';
+  doc.save(filename);
+
+// Show confirmation in chat
+  const notFoundHtml = notFound.length
+    ? `<br><br>⚠️ No encontradas: <strong>${notFound.join(', ')}</strong>`
+    : '';
+
+  const rowsHtml = rows.map(r =>
+    `<div class="ic-row" style="grid-column:1/-1;display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:4px">
+      <span style="font-size:12px;color:var(--text)">${esc(r.numero_orden)}</span>
+      <span style="font-size:11px;color:var(--muted)">${esc(r.numero_lpn||'—')} · ${r.cantidad_productos} uds</span>
+    </div>`
+  ).join('');
+
+  botMsg(`✅ Manifiesto generado y descargado automáticamente.<br><br>
+    <div class="info-card" style="grid-template-columns:1fr">
+      <div class="ic-row"><span class="ic-label">Seller</span><span class="ic-value">${esc(seller)}</span></div>
+      <div class="ic-row"><span class="ic-label">RUT</span><span class="ic-value">${esc(rut)}</span></div>
+      <div class="ic-row"><span class="ic-label">Fecha</span><span class="ic-value">${fecha}</span></div>
+      <div class="ic-row"><span class="ic-label">Órdenes incluidas</span><span class="ic-value">${rows.length}</span></div>
+      <div class="ic-row"><span class="ic-label">Total bultos</span><span class="ic-value"><strong>${totalBultos}</strong></span></div>
+    </div>
+    ${notFoundHtml}
+    <div style="margin-top:10px">
+      <div class="back-btn" onclick="askOrders()">📄 Generar otro</div>
+      <div class="back-btn" style="margin-left:6px" onclick="goHome()">🏠 Menú</div>
+    </div>`);
 }
 
 // ═══════════════════════════════════════════════════════════════
